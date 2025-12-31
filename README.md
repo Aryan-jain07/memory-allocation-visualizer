@@ -1,73 +1,98 @@
-# Welcome to your Lovable project
+# Memory Allocation Algorithm Visualizer
 
-## Project info
+An interactive web application to **visualize and understand memory allocation algorithms** used in operating systems.  
+The project allows users to experiment with different input cases, observe how memory is allocated, and analyze fragmentation and utilization.
 
-**URL**: https://lovable.dev/projects/9053a43d-6e67-4c6a-a2d8-ff66cadbded1
+This tool is designed primarily for **educational and demonstration purposes**, especially for OS and DSA concepts.
 
-## How can I edit this code?
+---
 
-There are several ways of editing your application.
+## 🚀 Features
 
-**Use Lovable**
+- 📊 Visual representation of memory blocks and holes
+- 🧠 Simulation of memory allocation algorithms (e.g. First Fit, Best Fit, etc.)
+- 📄 **Excel-based input/output**
+  - Generate a random, well-structured demo case as an Excel file
+  - Modify memory/process values externally
+  - Upload the Excel file back to the app to run the simulation
+- ❗ Strong input validation
+  - Prevents running simulations with incomplete or invalid data
+  - Blocking alert dialog for invalid Excel uploads
+- 🔁 Re-runnable simulations with different configurations
+- 🖥️ Clean, responsive UI built for clarity
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/9053a43d-6e67-4c6a-a2d8-ff66cadbded1) and start prompting.
+---
 
-Changes made via Lovable will be committed automatically to this repo.
+## 🧩 Why Excel-based Inputs?
 
-**Use your preferred IDE**
+Instead of hardcoding inputs or using only form fields, this project supports Excel files to:
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+- Enable **reproducible test cases**
+- Allow easy modification of inputs without touching code
+- Make demonstrations clearer during presentations
+- Encourage experimentation with different memory layouts
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+This approach closely mirrors how test data is handled in real-world systems and labs.
 
-Follow these steps:
+---
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+## 📁 Excel File Format
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+The uploaded Excel file must contain the following sheets:
 
-# Step 3: Install the necessary dependencies.
-npm i
+### Sheet 1: `Processes`
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
+| Process Name | Size |
+|-------------|------|
+| P1          | 120  |
+| P2          | 60   |
+
+**Rules:**
+- If a process name is present, its size must be provided
+- Size must be a positive number
+- Duplicate process names are not allowed
+
+---
+
+### Sheet 2: `Memory`
+
+| Key          | Value |
+|-------------|-------|
+| TotalMemory | 1000  |
+
+---
+
+### Sheet 3: `Holes`
+
+| Hole ID | Start | Size |
+|--------|-------|------|
+| H1     | 0     | 200  |
+| H2     | 300   | 150  |
+
+---
+
+## 🛠️ Tech Stack
+
+- **Frontend:** React + TypeScript
+- **Build Tool:** Vite
+- **Styling:** Tailwind CSS
+- **UI Components:** shadcn/ui + Radix UI
+- **Excel Parsing:** SheetJS (`xlsx`)
+- **Version Control:** Git & GitHub
+- **Deployment:** Vercel
+
+---
+
+## 🧪 Running the Project Locally
+
+### Prerequisites
+- Node.js (v18 or later)
+- npm
+
+### Steps
+
+```bash
+git clone <repository-url>
+cd lovable-export
+npm install
 npm run dev
-```
-
-**Edit a file directly in GitHub**
-
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
-
-**Use GitHub Codespaces**
-
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
-
-## What technologies are used for this project?
-
-This project is built with:
-
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/9053a43d-6e67-4c6a-a2d8-ff66cadbded1) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
