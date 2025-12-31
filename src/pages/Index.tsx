@@ -50,6 +50,10 @@ const Index = () => {
         <Header />
 
         <main className="container mx-auto px-4 py-3">
+          <p className="text-sm text-muted-foreground mb-2">
+  Current Time: t = {simulation.currentTime}
+</p>
+
           {/* Timeline visualization */}
           <motion.section
             initial={{ opacity: 0, y: 20 }}
