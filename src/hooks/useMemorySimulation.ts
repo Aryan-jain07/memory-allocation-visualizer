@@ -1,27 +1,32 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { 
-  Process, 
-  MemoryBlock, 
-  Hole, 
-  AllocationLog, 
-  MemoryStats, 
+import {
+  Process,
+  MemoryBlock,
+  Hole,
+  AllocationLog,
+  MemoryStats,
   SimulationState,
   AllocationTechnique,
-  PROCESS_COLORS 
+  PROCESS_COLORS,
 } from '@/types/memory';
+import { SimulationEvent } from '@/types/simulationEvents';
 
 const DEFAULT_TOTAL_MEMORY = 1024;
 const DEFAULT_SPEED = 1000;
 
-const generateId = () => Math.random().toString(36).substr(2, 9);
+const generateId = () => Math.random().toString(36).slice(2, 9);
 
 export function useMemorySimulation() {
   const [totalMemory, setTotalMemory] = useState(DEFAULT_TOTAL_MEMORY);
-  const [processes, setProcesses] = useState<Process[]>([]);
+
   const [memoryBlocks, setMemoryBlocks] = useState<MemoryBlock[]>([
-    { id: generateId(), start: 0, size: DEFAULT_TOTAL_MEMORY, processId: null, isHole: true }
+    { id: generateId(), start: 0, size: DEFAULT_TOTAL_MEMORY, processId: null, isHole: true },
   ]);
+
+  const [processes, setProcesses] = useState<Process[]>([]);
   const [logs, setLogs] = useState<AllocationLog[]>([]);
+  const [events, setEvents] = useState<SimulationEvent[]>([]);
+
   const [simulation, setSimulation] = useState<SimulationState>({
     isRunning: false,
     isPaused: false,
@@ -34,271 +39,111 @@ export function useMemorySimulation() {
   const colorIndex = useRef(0);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  const addLog = useCallback((
-    type: AllocationLog['type'],
-    message: string,
-    details?: string,
-    processId?: string,
-    processName?: string
-  ) => {
-    const log: AllocationLog = {
-      id: generateId(),
-      timestamp: new Date(),
-      type,
-      message,
-      details,
-      processId,
-      processName,
-      technique: simulation.technique,
-    };
-    setLogs(prev => [log, ...prev].slice(0, 100));
-  }, [simulation.technique]);
+  /* -------------------- helpers -------------------- */
+
+  const addEvent = useCallback((event: SimulationEvent) => {
+    setEvents(prev => [...prev, event]);
+  }, []);
+
+  const addLog = useCallback(
+    (type: AllocationLog['type'], message: string, details?: string, process?: Process) => {
+      setLogs(prev =>
+        [
+          {
+            id: generateId(),
+            timestamp: new Date(),
+            type,
+            message,
+            details,
+            processId: process?.id,
+            processName: process?.name,
+            technique: simulation.technique,
+          },
+          ...prev,
+        ].slice(0, 100)
+      );
+    },
+    [simulation.technique]
+  );
 
   const getHoles = useCallback((): Hole[] => {
     return memoryBlocks
-      .filter(block => block.isHole)
-      .map(block => ({
-        id: block.id,
-        start: block.start,
-        end: block.start + block.size - 1,
-        size: block.size,
+      .filter(b => b.isHole)
+      .map(b => ({
+        id: b.id,
+        start: b.start,
+        end: b.start + b.size - 1,
+        size: b.size,
       }));
   }, [memoryBlocks]);
 
   const getStats = useCallback((): MemoryStats => {
-    const holes = getHoles();
-    const usedMemory = memoryBlocks
-      .filter(b => !b.isHole)
-      .reduce((sum, b) => sum + b.size, 0);
+    const usedMemory = memoryBlocks.filter(b => !b.isHole).reduce((s, b) => s + b.size, 0);
     const freeMemory = totalMemory - usedMemory;
+    const holes = getHoles();
 
     return {
-      totalMemory: totalMemory,
+      totalMemory,
       usedMemory,
       freeMemory,
       utilization: (usedMemory / totalMemory) * 100,
       internalFragmentation: 0,
-      externalFragmentation: holes.length > 1 ? holes.reduce((sum, h) => sum + h.size, 0) : 0,
+      externalFragmentation: holes.length > 1 ? holes.reduce((s, h) => s + h.size, 0) : 0,
       numberOfHoles: holes.length,
       numberOfProcesses: processes.filter(p => p.status === 'running').length,
     };
   }, [memoryBlocks, processes, getHoles, totalMemory]);
 
-  const findFirstFit = useCallback((size: number): MemoryBlock | null => {
-    const holes = memoryBlocks.filter(b => b.isHole && b.size >= size);
-    return holes[0] || null;
-  }, [memoryBlocks]);
+  /* -------------------- hole selection -------------------- */
 
-  const findBestFit = useCallback((size: number): MemoryBlock | null => {
-    const holes = memoryBlocks
-      .filter(b => b.isHole && b.size >= size)
-      .sort((a, b) => a.size - b.size);
-    return holes[0] || null;
-  }, [memoryBlocks]);
+  const findHole = useCallback(
+    (size: number): MemoryBlock | null => {
+      const holes = memoryBlocks.filter(b => b.isHole && b.size >= size);
+      if (!holes.length) return null;
 
-  const findWorstFit = useCallback((size: number): MemoryBlock | null => {
-    const holes = memoryBlocks
-      .filter(b => b.isHole && b.size >= size)
-      .sort((a, b) => b.size - a.size);
-    return holes[0] || null;
-  }, [memoryBlocks]);
-
-  const findNextFit = useCallback((size: number): MemoryBlock | null => {
-    const holes = memoryBlocks.filter(b => b.isHole && b.size >= size);
-    if (holes.length === 0) return null;
-
-    const startIdx = simulation.lastFitIndex % holes.length;
-    for (let i = 0; i < holes.length; i++) {
-      const idx = (startIdx + i) % holes.length;
-      if (holes[idx].size >= size) {
-        setSimulation(prev => ({ ...prev, lastFitIndex: idx + 1 }));
-        return holes[idx];
+      switch (simulation.technique) {
+        case 'best-fit':
+          return [...holes].sort((a, b) => a.size - b.size)[0];
+        case 'worst-fit':
+          return [...holes].sort((a, b) => b.size - a.size)[0];
+        case 'next-fit': {
+          const idx = simulation.lastFitIndex % holes.length;
+          setSimulation(prev => ({ ...prev, lastFitIndex: idx + 1 }));
+          return holes[idx];
+        }
+        default:
+          return holes[0];
       }
-    }
-    return null;
-  }, [memoryBlocks, simulation.lastFitIndex]);
+    },
+    [memoryBlocks, simulation.technique, simulation.lastFitIndex]
+  );
 
-  const findHole = useCallback((size: number, technique: AllocationTechnique): MemoryBlock | null => {
-    switch (technique) {
-      case 'first-fit': return findFirstFit(size);
-      case 'best-fit': return findBestFit(size);
-      case 'worst-fit': return findWorstFit(size);
-      case 'next-fit': return findNextFit(size);
-      default: return findFirstFit(size);
-    }
-  }, [findFirstFit, findBestFit, findWorstFit, findNextFit]);
+  /* -------------------- memory mutation -------------------- */
 
-  const allocateProcess = useCallback((process: Omit<Process, 'id' | 'color' | 'status' | 'remainingTime'>, manualAddress?: number) => {
-    const color = PROCESS_COLORS[colorIndex.current % PROCESS_COLORS.length];
-    colorIndex.current++;
+  const allocateIntoMemory = useCallback(
+    (process: Process, block: MemoryBlock, address: number) => {
+      setMemoryBlocks(prev => {
+        const next: MemoryBlock[] = [];
 
-    const newProcess: Process = {
-      ...process,
-      id: generateId(),
-      color,
-      status: process.arrivalTime <= simulation.currentTime ? 'waiting' : 'waiting',
-      remainingTime: process.burstTime,
-    };
+        for (const b of prev) {
+          if (b.id !== block.id) {
+            next.push(b);
+            continue;
+          }
 
-    // If arrival time is in the future, just add to waiting queue
-    if (process.arrivalTime > simulation.currentTime) {
-      setProcesses(prev => [...prev, newProcess]);
-      addLog(
-        'info',
-        `Queued ${newProcess.name} (${process.size} KB)`,
-        `Will arrive at tick ${process.arrivalTime}`,
-        newProcess.id,
-        newProcess.name
-      );
-      return newProcess;
-    }
-
-    let targetBlock: MemoryBlock | null = null;
-
-    if (manualAddress !== undefined) {
-      const hole = memoryBlocks.find(b => 
-        b.isHole && 
-        b.start <= manualAddress && 
-        b.start + b.size >= manualAddress + process.size
-      );
-      if (hole) {
-        targetBlock = { ...hole, start: manualAddress };
-      } else {
-        addLog('error', `Cannot allocate ${process.name} at address ${manualAddress}`, 'Invalid or occupied address range');
-        return null;
-      }
-    } else {
-      targetBlock = findHole(process.size, simulation.technique);
-    }
-
-    if (!targetBlock) {
-      addLog('error', `Cannot allocate ${process.name} (${process.size} KB)`, 'No suitable hole found');
-      return null;
-    }
-
-    const allocatedAddress = manualAddress ?? targetBlock.start;
-    newProcess.startAddress = allocatedAddress;
-    newProcess.status = 'running';
-    newProcess.allocatedAt = simulation.currentTime;
-
-    setMemoryBlocks(prev => {
-      const newBlocks: MemoryBlock[] = [];
-      
-      for (const block of prev) {
-        if (block.id === targetBlock!.id) {
-          if (allocatedAddress > block.start) {
-            newBlocks.push({
+          if (address > b.start) {
+            next.push({
               id: generateId(),
-              start: block.start,
-              size: allocatedAddress - block.start,
+              start: b.start,
+              size: address - b.start,
               processId: null,
               isHole: true,
             });
           }
 
-          newBlocks.push({
+          next.push({
             id: generateId(),
-            start: allocatedAddress,
-            size: process.size,
-            processId: newProcess.id,
-            processName: newProcess.name,
-            color: newProcess.color,
-            isHole: false,
-          });
-
-          const endOfAllocation = allocatedAddress + process.size;
-          const endOfBlock = block.start + block.size;
-          if (endOfAllocation < endOfBlock) {
-            newBlocks.push({
-              id: generateId(),
-              start: endOfAllocation,
-              size: endOfBlock - endOfAllocation,
-              processId: null,
-              isHole: true,
-            });
-          }
-        } else {
-          newBlocks.push(block);
-        }
-      }
-
-      return newBlocks.sort((a, b) => a.start - b.start);
-    });
-
-    setProcesses(prev => [...prev, newProcess]);
-
-    addLog(
-      'allocation',
-      `Allocated ${newProcess.name} (${process.size} KB)`,
-      `Address: ${allocatedAddress}, Technique: ${simulation.technique}`,
-      newProcess.id,
-      newProcess.name
-    );
-
-    return newProcess;
-  }, [memoryBlocks, simulation.technique, simulation.currentTime, findHole, addLog]);
-
-  const deallocateProcess = useCallback((processId: string) => {
-    const process = processes.find(p => p.id === processId);
-    if (!process) return;
-
-    setMemoryBlocks(prev => {
-      const newBlocks = prev.map(block => {
-        if (block.processId === processId) {
-          return {
-            ...block,
-            processId: null,
-            processName: undefined,
-            color: undefined,
-            isHole: true,
-          };
-        }
-        return block;
-      });
-
-      const merged: MemoryBlock[] = [];
-      for (const block of newBlocks) {
-        const lastBlock = merged[merged.length - 1];
-        if (lastBlock && lastBlock.isHole && block.isHole) {
-          lastBlock.size += block.size;
-        } else {
-          merged.push({ ...block });
-        }
-      }
-
-      return merged;
-    });
-
-    setProcesses(prev => prev.map(p => 
-      p.id === processId ? { ...p, status: 'completed' as const } : p
-    ));
-
-    addLog(
-      'deallocation',
-      `Deallocated ${process.name}`,
-      `Freed ${process.size} KB at address ${process.startAddress}`,
-      process.id,
-      process.name
-    );
-  }, [processes, addLog]);
-
-  const tryAllocateWaitingProcess = useCallback((process: Process, currentTime: number) => {
-    const targetBlock = findHole(process.size, simulation.technique);
-    
-    if (!targetBlock) {
-      return null;
-    }
-
-    const allocatedAddress = targetBlock.start;
-
-    setMemoryBlocks(prev => {
-      const newBlocks: MemoryBlock[] = [];
-      
-      for (const block of prev) {
-        if (block.id === targetBlock.id) {
-          newBlocks.push({
-            id: generateId(),
-            start: allocatedAddress,
+            start: address,
             size: process.size,
             processId: process.id,
             processName: process.name,
@@ -306,117 +151,172 @@ export function useMemorySimulation() {
             isHole: false,
           });
 
-          const remaining = block.size - process.size;
-          if (remaining > 0) {
-            newBlocks.push({
+          const end = address + process.size;
+          const blockEnd = b.start + b.size;
+          if (end < blockEnd) {
+            next.push({
               id: generateId(),
-              start: allocatedAddress + process.size,
-              size: remaining,
+              start: end,
+              size: blockEnd - end,
               processId: null,
               isHole: true,
             });
           }
-        } else {
-          newBlocks.push(block);
         }
+
+        return next.sort((a, b) => a.start - b.start);
+      });
+    },
+    []
+  );
+
+  const freeMemoryForProcess = useCallback((process: Process) => {
+    addEvent({
+      time: simulation.currentTime,
+      type: 'DEALLOCATION',
+      processName: process.name,
+      details: `Freed ${process.size} KB`,
+    });
+
+    setMemoryBlocks(prev => {
+      const cleared = prev.map(b =>
+        b.processId === process.id ? { ...b, processId: null, isHole: true } : b
+      );
+
+      const merged: MemoryBlock[] = [];
+      for (const b of cleared) {
+        const last = merged.at(-1);
+        if (last && last.isHole && b.isHole) last.size += b.size;
+        else merged.push({ ...b });
       }
 
-      return newBlocks.sort((a, b) => a.start - b.start);
+      return merged;
     });
+  }, [simulation.currentTime, addEvent]);
 
-    addLog(
-      'allocation',
-      `Allocated ${process.name} (${process.size} KB)`,
-      `Address: ${allocatedAddress}, Arrived at tick ${process.arrivalTime}`,
-      process.id,
-      process.name
-    );
+  /* -------------------- public API -------------------- */
 
-    return allocatedAddress;
-  }, [simulation.technique, findHole, addLog]);
+  const allocateProcess = useCallback(
+    (input: Omit<Process, 'id' | 'color' | 'status' | 'remainingTime'>) => {
+      const color = PROCESS_COLORS[colorIndex.current++ % PROCESS_COLORS.length];
+
+      const process: Process = {
+        ...input,
+        id: generateId(),
+        color,
+        status: 'waiting',
+        remainingTime: input.burstTime,
+      };
+
+      setProcesses(prev => [...prev, process]);
+      addLog('info', `Queued ${process.name}`, `Arrives at t=${process.arrivalTime}`, process);
+
+      return process;
+    },
+    [addLog]
+  );
+
+  /* -------------------- time -------------------- */
 
   const tick = useCallback(() => {
-    setSimulation(prev => ({ ...prev, currentTime: prev.currentTime + 1 }));
+    const nextTime = simulation.currentTime + 1;
+    setSimulation(prev => ({ ...prev, currentTime: nextTime }));
 
-    const newTime = simulation.currentTime + 1;
+    setProcesses(prev =>
+      prev.map(p => {
+        // arrival
+        if (p.status === 'waiting' && p.arrivalTime === nextTime) {
+          addEvent({
+            time: nextTime,
+            type: 'PROCESS_ARRIVAL',
+            processName: p.name,
+            details: `${p.name} arrived`,
+          });
 
-    // Check for processes that have arrived and need allocation
-    setProcesses(prev => {
-      const updated = prev.map(p => {
-        // Process arriving now
-        if (p.status === 'waiting' && p.arrivalTime <= newTime && p.startAddress === undefined) {
-          const address = tryAllocateWaitingProcess(p, newTime);
-          if (address !== null) {
-            return { ...p, status: 'running' as const, startAddress: address, allocatedAt: newTime };
+          const hole = findHole(p.size);
+          if (hole) {
+            allocateIntoMemory(p, hole, hole.start);
+
+            addEvent({
+              time: nextTime,
+              type: 'ALLOCATION_SUCCESS',
+              processName: p.name,
+              holeId: hole.id,
+              details: `Allocated using ${simulation.technique}`,
+            });
+
+            return {
+              ...p,
+              status: 'running',
+              startAddress: hole.start,
+              allocatedAt: nextTime,
+            };
           }
+
+          addEvent({
+            time: nextTime,
+            type: 'ALLOCATION_FAILURE',
+            processName: p.name,
+            details: `No suitable hole`,
+          });
         }
-        // Running process ticking down
-        if (p.status === 'running' && p.remainingTime > 0) {
-          return { ...p, remainingTime: p.remainingTime - 1 };
+
+        // execution
+        if (p.status === 'running') {
+          const remaining = p.remainingTime - 1;
+          return remaining === 0
+            ? { ...p, remainingTime: 0, status: 'completed' }
+            : { ...p, remainingTime: remaining };
         }
+
         return p;
-      });
+      })
+    );
+  }, [
+    simulation.currentTime,
+    simulation.technique,
+    findHole,
+    allocateIntoMemory,
+    addEvent,
+  ]);
 
-      updated.forEach(p => {
-        if (p.status === 'running' && p.remainingTime === 0) {
-          deallocateProcess(p.id);
-        }
-      });
+  /* -------------------- deallocation effect -------------------- */
 
-      return updated;
-    });
-  }, [deallocateProcess, simulation.currentTime, tryAllocateWaitingProcess]);
+  useEffect(() => {
+    const completed = processes.filter(
+      p => p.status === 'completed' && p.startAddress !== undefined
+    );
 
-  const startSimulation = useCallback(() => {
+    completed.forEach(p => freeMemoryForProcess(p));
+  }, [processes, freeMemoryForProcess]);
+
+  /* -------------------- controls -------------------- */
+
+  const startSimulation = () =>
     setSimulation(prev => ({ ...prev, isRunning: true, isPaused: false }));
-  }, []);
 
-  const pauseSimulation = useCallback(() => {
+  const pauseSimulation = () =>
     setSimulation(prev => ({ ...prev, isPaused: true }));
-  }, []);
 
-  const resumeSimulation = useCallback(() => {
+  const resumeSimulation = () =>
     setSimulation(prev => ({ ...prev, isPaused: false }));
-  }, []);
 
-  const resetSimulation = useCallback(() => {
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-    }
+  const resetSimulation = () => {
+    if (intervalRef.current) clearInterval(intervalRef.current);
     setProcesses([]);
-    setMemoryBlocks([
-      { id: generateId(), start: 0, size: totalMemory, processId: null, isHole: true }
-    ]);
+    setEvents([]);
     setLogs([]);
-    setSimulation({
-      isRunning: false,
-      isPaused: false,
-      speed: DEFAULT_SPEED,
-      currentTime: 0,
-      technique: simulation.technique,
-      lastFitIndex: 0,
-    });
+    setMemoryBlocks([{ id: generateId(), start: 0, size: totalMemory, processId: null, isHole: true }]);
+    setSimulation(prev => ({ ...prev, isRunning: false, currentTime: 0, lastFitIndex: 0 }));
     colorIndex.current = 0;
-    addLog('info', 'Simulation reset', 'Memory cleared');
-  }, [simulation.technique, addLog, totalMemory]);
+  };
 
-  const changeTotalMemory = useCallback((newSize: number) => {
-    setTotalMemory(newSize);
-    setMemoryBlocks([
-      { id: generateId(), start: 0, size: newSize, processId: null, isHole: true }
-    ]);
+  const changeTotalMemory = (size: number) => {
+    setTotalMemory(size);
+    setMemoryBlocks([{ id: generateId(), start: 0, size, processId: null, isHole: true }]);
     setProcesses([]);
-    addLog('info', `Memory size changed to ${newSize} KB`, 'Simulation reset');
-  }, [addLog]);
-
-  const setSpeed = useCallback((speed: number) => {
-    setSimulation(prev => ({ ...prev, speed }));
-  }, []);
-
-  const setTechnique = useCallback((technique: AllocationTechnique) => {
-    setSimulation(prev => ({ ...prev, technique, lastFitIndex: 0 }));
-    addLog('info', `Switched to ${technique}`, 'Allocation technique changed');
-  }, [addLog]);
+    setEvents([]);
+  };
 
   useEffect(() => {
     if (simulation.isRunning && !simulation.isPaused) {
@@ -424,31 +324,26 @@ export function useMemorySimulation() {
     } else if (intervalRef.current) {
       clearInterval(intervalRef.current);
     }
-
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
-    };
+    return () => intervalRef.current && clearInterval(intervalRef.current);
   }, [simulation.isRunning, simulation.isPaused, simulation.speed, tick]);
 
   return {
     processes,
     memoryBlocks,
     logs,
+    events,
     simulation,
     stats: getStats(),
     holes: getHoles(),
     totalMemory,
     allocateProcess,
-    deallocateProcess,
     startSimulation,
     pauseSimulation,
     resumeSimulation,
     resetSimulation,
-    setSpeed,
-    setTechnique,
+    setSpeed: (speed: number) => setSimulation(p => ({ ...p, speed })),
+    setTechnique: (t: AllocationTechnique) =>
+      setSimulation(p => ({ ...p, technique: t, lastFitIndex: 0 })),
     changeTotalMemory,
-    addLog,
   };
 }

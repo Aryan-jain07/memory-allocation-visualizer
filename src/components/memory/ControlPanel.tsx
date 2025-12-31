@@ -1,10 +1,22 @@
 import { motion } from 'framer-motion';
-import { Play, Pause, RotateCcw, Settings } from 'lucide-react';
+import { useState, useRef } from 'react';
+import { Play, Pause, RotateCcw, Settings, Upload, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { 
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { AllocationTechnique, SimulationState } from '@/types/memory';
+import { generateTemplate } from '@/lib/excel/generateTemplate';
+import { parseExcel, ExcelParseError } from '@/lib/excel/parseExcel';
 
 interface ControlPanelProps {
   simulation: SimulationState;
@@ -16,6 +28,7 @@ interface ControlPanelProps {
   onSpeedChange: (speed: number) => void;
   onTechniqueChange: (technique: AllocationTechnique) => void;
   onTotalMemoryChange: (size: number) => void;
+  onAllocateProcess: (process: { name: string; size: number; burstTime: number; arrivalTime: number }, manualAddress?: number) => void;
 }
 
 const TECHNIQUES: { value: AllocationTechnique; label: string }[] = [
@@ -35,26 +48,82 @@ export function ControlPanel({
   onSpeedChange,
   onTechniqueChange,
   onTotalMemoryChange,
+  onAllocateProcess,
 }: ControlPanelProps) {
   const speedMs = simulation.speed;
   const speedLabel = speedMs >= 1000 
     ? `${(speedMs / 1000).toFixed(1)}s` 
     : `${speedMs}ms`;
 
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: -20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="glass-panel p-3"
-    >
-      <div className="flex items-center gap-2 mb-3">
-        <div className="p-1.5 rounded bg-primary/20 neon-glow">
-          <Settings className="w-4 h-4 text-primary" />
-        </div>
-        <h3 className="font-display text-sm text-primary neon-text">CONTROL PANEL</h3>
-      </div>
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [errorDialogOpen, setErrorDialogOpen] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
-      <div className="space-y-3">
+  const handleGenerateTemplate = () => {
+    generateTemplate();
+  };
+
+  const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const parsedData = await parseExcel(file);
+
+      // Reset simulation first
+      onReset();
+
+      // Set total memory
+      onTotalMemoryChange(parsedData.totalMemory);
+
+      // Allocate each process with default values for burstTime and arrivalTime
+      for (const process of parsedData.processes) {
+        onAllocateProcess({
+          name: process.name,
+          size: process.size,
+          burstTime: 1000, // Default burst time
+          arrivalTime: 0, // Default arrival time (immediate)
+        });
+      }
+
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    } catch (error) {
+      if (error instanceof ExcelParseError) {
+        setErrorMessage(error.message);
+      } else {
+        setErrorMessage(error instanceof Error ? error.message : 'Unknown error occurred');
+      }
+      setErrorDialogOpen(true);
+      
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleUploadClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  return (
+    <>
+      <motion.div
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="glass-panel p-3"
+      >
+        <div className="flex items-center gap-2 mb-3">
+          <div className="p-1.5 rounded bg-primary/20 neon-glow">
+            <Settings className="w-4 h-4 text-primary" />
+          </div>
+          <h3 className="font-display text-sm text-primary neon-text">CONTROL PANEL</h3>
+        </div>
+
+        <div className="space-y-3">
         {/* Playback controls */}
         <div className="flex items-center gap-2">
           {!simulation.isRunning ? (
@@ -170,7 +239,55 @@ export function ControlPanel({
             </span>
           </div>
         </div>
+
+        {/* Excel import/export buttons */}
+        <div className="flex flex-col gap-2 pt-2 border-t border-border">
+          <Button
+            onClick={handleGenerateTemplate}
+            size="sm"
+            variant="outline"
+            className="w-full text-xs"
+            disabled={simulation.isRunning}
+          >
+            <Download className="w-3 h-3 mr-1" />
+            Generate Demo Excel
+          </Button>
+          <Button
+            onClick={handleUploadClick}
+            size="sm"
+            variant="outline"
+            className="w-full text-xs"
+            disabled={simulation.isRunning}
+          >
+            <Upload className="w-3 h-3 mr-1" />
+            Upload Excel
+          </Button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx"
+            onChange={handleFileSelect}
+            className="hidden"
+          />
+        </div>
       </div>
     </motion.div>
+
+    <AlertDialog open={errorDialogOpen} onOpenChange={setErrorDialogOpen}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Invalid Excel File</AlertDialogTitle>
+          <AlertDialogDescription>
+            {errorMessage}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogAction onClick={() => setErrorDialogOpen(false)}>
+            OK
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   );
 }

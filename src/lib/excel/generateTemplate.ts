@@ -1,8 +1,12 @@
 import * as XLSX from 'xlsx';
+const randomInt = (min: number, max: number) =>
+    Math.floor(Math.random() * (max - min + 1)) + min;
 
 export interface ProcessTemplate {
   name: string;
   size: number;
+  arrivalTime: number;
+  burstTime: number;
 }
 
 export interface HoleTemplate {
@@ -29,6 +33,8 @@ export function generateTemplate(): void {
     processes.push({
       name: processNames[i],
       size: Math.floor(Math.random() * 200) + 50, // 50-250 KB
+      arrivalTime: i + 1,
+      burstTime: randomInt(1, 10),
     });
   }
 
@@ -72,17 +78,23 @@ export function generateTemplate(): void {
 
   // Create Processes sheet
   const processesData = [
-    ['Process Name', 'Size'], // Header
-    ...processes.map(p => [p.name, p.size]),
+    ['Process Name', 'Size', 'Arrival Time', 'Burst Time'],
+    ...processes.map(p => [
+      p.name,
+      p.size,
+      p.arrivalTime,
+      p.burstTime,
+    ]),
   ];
   const processesSheet = XLSX.utils.aoa_to_sheet(processesData);
   XLSX.utils.book_append_sheet(workbook, processesSheet, 'Processes');
 
   // Create Memory sheet
   const memoryData = [
-    ['TotalMemory'], // Header
-    [totalMemory],
+    ['Key', 'Value'],
+    ['TotalMemory', totalMemory],
   ];
+  
   const memorySheet = XLSX.utils.aoa_to_sheet(memoryData);
   XLSX.utils.book_append_sheet(workbook, memorySheet, 'Memory');
 

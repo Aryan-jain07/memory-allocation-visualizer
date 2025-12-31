@@ -72,6 +72,7 @@ const Index = () => {
                 onSpeedChange={setSpeed}
                 onTechniqueChange={setTechnique}
                 onTotalMemoryChange={changeTotalMemory}
+                onAllocateProcess={allocateProcess}
               />
               <ProcessForm onSubmit={handleAddProcess} currentTime={simulation.currentTime} />
             </div>
