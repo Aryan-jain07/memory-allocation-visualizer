@@ -225,7 +225,7 @@ export function useMemorySimulation() {
     setProcesses(prev =>
       prev.map(p => {
         // arrival
-        if (p.status === 'waiting' && p.arrivalTime === nextTime) {
+        if (p.status === 'waiting' && p.arrivalTime <= nextTime) {
           addEvent({
             time: nextTime,
             type: 'PROCESS_ARRIVAL',
