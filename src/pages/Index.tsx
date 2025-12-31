@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion';
 import { useMemorySimulation } from '@/hooks/useMemorySimulation';
 import { Header } from '@/components/memory/Header';
+import { Timeline } from '@/components/memory/Timeline';
 import { MemoryBar } from '@/components/memory/MemoryBar';
 import { ProcessForm } from '@/components/memory/ProcessForm';
 import { ControlPanel } from '@/components/memory/ControlPanel';
@@ -14,12 +15,12 @@ const Index = () => {
     processes,
     memoryBlocks,
     logs,
+    events,
     simulation,
     stats,
     holes,
     totalMemory,
     allocateProcess,
-    deallocateProcess,
     startSimulation,
     pauseSimulation,
     resumeSimulation,
@@ -33,7 +34,8 @@ const Index = () => {
     process: { name: string; size: number; burstTime: number; arrivalTime: number },
     manualAddress?: number
   ) => {
-    allocateProcess(process, manualAddress);
+    // Manual address is no longer supported in the refactored hook
+    allocateProcess(process);
   };
 
   return (
@@ -48,6 +50,16 @@ const Index = () => {
         <Header />
 
         <main className="container mx-auto px-4 py-3">
+          {/* Timeline visualization */}
+          <motion.section
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.15 }}
+            className="mb-3"
+          >
+            <Timeline events={events} currentTime={simulation.currentTime} />
+          </motion.section>
+
           {/* Memory visualization */}
           <motion.section
             initial={{ opacity: 0, y: 20 }}
@@ -81,7 +93,7 @@ const Index = () => {
             <div className="lg:col-span-5 space-y-3">
               <ProcessList 
                 processes={processes} 
-                onTerminate={deallocateProcess}
+                onTerminate={() => {}}
               />
               <HolesTable holes={holes} />
             </div>
